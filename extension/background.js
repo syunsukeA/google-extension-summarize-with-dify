@@ -1,4 +1,6 @@
 const MENU_ID = "send_to_dify_copy";
+const ICON_URL = chrome.runtime.getURL("icon128.png");
+let isRunning = false; // 二重実行を防止するための変数
 
 // 初期化
 chrome.runtime.onInstalled.addListener(() => createMenu());
@@ -123,21 +125,71 @@ function notify(title, message) {
 }
 
 // 右クリック処理
-chrome.contextMenus.onClicked.addListener(async (info, tab) => {
-  if (info.menuItemId !== MENU_ID || !info.selectionText) return;
-  const selected = info.selectionText.trim();
-  if (!selected) return;
+chrome.contextMenus.onClicked.addListener(async (info) => {
+  if (info.menuItemId !== MENU_ID) return;
+
+  const selected = (info.selectionText || "").trim();
+  if (!selected) {
+    await createBasicNotification("選択テキストが空です");
+    return;
+  }
+
+  if (isRunning) {
+    await createBasicNotification("すでにデータ処理中です…");
+    return;
+  }
+  isRunning = true;
+
+  // ★ 開始通知（固有ID）
+  const processingId = `dify-processing-${Date.now()}`;
+  await createBasicNotification("データ処理中...", processingId);
+  chrome.action.setBadgeText({ text: "…" });
 
   try {
-    chrome.action.setBadgeText({ text: "…" });
-    const cfg = await getConfig();
-    const result = await callDifyBlocking(cfg, selected);
-    const ok = await copyViaOffscreen(result);
-    if (!ok) throw new Error("クリップボードへのコピーに失敗しました。");
-    notify("Dify Copier", "結果をコピーしました。");
+    const cfg    = await getConfig();
+    const result = await callDifyBlocking(cfg, selected); // Difyへ送信→応答
+    await copyViaOffscreen(result);                       // クリップボードへ
+
+    // ★ 完了通知は別IDで新規作成（先に出す）
+    const doneId = `dify-done-${Date.now()}`;
+    await createBasicNotification("コピーが完了しました！", doneId);
+
+    // ★ 完了通知が出たのを確認してから、処理中通知を消す
+    clearNotification(processingId);
+
+    chrome.action.setBadgeText({ text: "OK" });
+    setTimeout(() => chrome.action.setBadgeText({ text: "" }), 1000);
   } catch (e) {
-    notify("Dify Copier: エラー", String(e.message || e));
+    // 失敗通知も別ID
+    const errId = `dify-error-${Date.now()}`;
+    await createBasicNotification("エラー: " + (e?.message || String(e)), errId);
+    clearNotification(processingId);
+    chrome.action.setBadgeText({ text: "ERR" });
+    setTimeout(() => chrome.action.setBadgeText({ text: "" }), 1500);
+    console.error("[DifyCopier] failure:", e);
   } finally {
-    setTimeout(() => chrome.action.setBadgeText({ text: "" }), 800);
+    isRunning = false;
   }
 });
+
+function createBasicNotification(message, id = undefined) {
+  return new Promise((resolve) => {
+    if (id) {
+      chrome.notifications.create(
+        id,
+        { type: "basic", iconUrl: ICON_URL, title: "Dify Copier", message },
+        () => { void chrome.runtime.lastError; resolve(id); }
+      );
+    } else {
+      chrome.notifications.create(
+        { type: "basic", iconUrl: ICON_URL, title: "Dify Copier", message },
+        (nid) => { void chrome.runtime.lastError; resolve(nid); }
+      );
+    }
+  });
+}
+
+function clearNotification(id) {
+  if (!id) return;
+  chrome.notifications.clear(id, () => void chrome.runtime.lastError);
+}
