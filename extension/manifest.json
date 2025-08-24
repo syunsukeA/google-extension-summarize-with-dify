@@ -1,0 +1,17 @@
+{
+  "manifest_version": 3,
+  "name": "Send to Dify & Copy",
+  "version": "1.0.0",
+  "description": "選択テキストをDifyに送信し、結果をクリップボードに自動コピーします。",
+  "permissions": [
+    "contextMenus", "storage", "offscreen", "notifications", "clipboardWrite"
+  ],
+  "host_permissions": ["https://*/v1/*", "http://*/v1/*"],
+  "background": {
+    "service_worker": "background.js", "type": "module"
+  },
+  "action": {
+    "default_title": "Dify Copier"
+  },
+  "options_page": "options.html"
+}
