@@ -1,6 +1,12 @@
-const MENU_ID = "send_to_dify_copy";
+// ==== constants ====
 const ICON_URL = chrome.runtime.getURL("icon128.png");
-let isRunning = false; // 二重実行を防止するための変数
+const TITLE = "Dify Copier";
+const MENU_ID = "send_to_dify_copy";
+const MSG_PROCESSING = "データ処理中...";
+const MSG_DONE = "コピーが完了しました！";
+const MSG_BUSY = "すでにデータ処理中です…";
+const MSG_EMPTY = "選択テキストが空です";
+const newId = (p) => `${p}-${Date.now()}`;
 
 // 初期化
 chrome.runtime.onInstalled.addListener(() => createMenu());
@@ -21,7 +27,7 @@ async function getConfig() {
     apiBase: "",              // 例: https://dify.example.com
     apiKey: "",               // Workflow(またはApp)のAPIキー
     appType: "workflow",      // "workflow" | "chat"
-    inputKey: "text",         // WorkflowのStart入力名
+    inputKey: "input_text",         // WorkflowのStart入力名
     outputKey: "text",        // ENDで出力するキー
     userId: "chrome-ext"      // Difyのuser識別子
   };
@@ -124,44 +130,41 @@ function notify(title, message) {
   } catch { /* 権限無しでも無視 */ }
 }
 
+
+// ==== state ====
+let isRunning = false; // 二重実行を防止するための変数
+
 // 右クリック処理
 chrome.contextMenus.onClicked.addListener(async (info) => {
   if (info.menuItemId !== MENU_ID) return;
 
   const selected = (info.selectionText || "").trim();
-  if (!selected) {
-    await createBasicNotification("選択テキストが空です");
-    return;
-  }
-
-  if (isRunning) {
-    await createBasicNotification("すでにデータ処理中です…");
-    return;
-  }
+  if (!selected) return void createBasicNotification(MSG_EMPTY);
+  if (isRunning) return void createBasicNotification(MSG_BUSY);
   isRunning = true;
 
-  // ★ 開始通知（固有ID）
-  const processingId = `dify-processing-${Date.now()}`;
-  await createBasicNotification("データ処理中...", processingId);
+  // 開始通知（固有ID）
+  const processingId = newId("dify-processing");
+  await createBasicNotification(MSG_PROCESSING, processingId);
   chrome.action.setBadgeText({ text: "…" });
 
   try {
-    const cfg    = await getConfig();
+    const cfg    = await getConfig();                     // 設定の読み取り
     const result = await callDifyBlocking(cfg, selected); // Difyへ送信→応答
-    await copyViaOffscreen(result);                       // クリップボードへ
+    await copyViaOffscreen(result);                       // クリップボードへ保存
 
-    // ★ 完了通知は別IDで新規作成（先に出す）
-    const doneId = `dify-done-${Date.now()}`;
-    await createBasicNotification("コピーが完了しました！", doneId);
+    // 完了通知は別IDで新規作成（先に出す）
+    const doneId = `dify-done`;
+    await createBasicNotification(MSG_DONE, doneId);
 
-    // ★ 完了通知が出たのを確認してから、処理中通知を消す
+    // 完了通知が出たのを確認してから、処理中通知を消す
     clearNotification(processingId);
 
     chrome.action.setBadgeText({ text: "OK" });
     setTimeout(() => chrome.action.setBadgeText({ text: "" }), 1000);
   } catch (e) {
     // 失敗通知も別ID
-    const errId = `dify-error-${Date.now()}`;
+    const errId = `dify-error`;
     await createBasicNotification("エラー: " + (e?.message || String(e)), errId);
     clearNotification(processingId);
     chrome.action.setBadgeText({ text: "ERR" });
@@ -177,12 +180,12 @@ function createBasicNotification(message, id = undefined) {
     if (id) {
       chrome.notifications.create(
         id,
-        { type: "basic", iconUrl: ICON_URL, title: "Dify Copier", message },
+        { type: "basic", iconUrl: ICON_URL, title: TITLE, message },
         () => { void chrome.runtime.lastError; resolve(id); }
       );
     } else {
       chrome.notifications.create(
-        { type: "basic", iconUrl: ICON_URL, title: "Dify Copier", message },
+        { type: "basic", iconUrl: ICON_URL, title: TITLE, message },
         (nid) => { void chrome.runtime.lastError; resolve(nid); }
       );
     }
