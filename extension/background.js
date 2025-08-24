@@ -154,7 +154,7 @@ chrome.contextMenus.onClicked.addListener(async (info) => {
     await copyViaOffscreen(result);                       // クリップボードへ保存
 
     // 完了通知は別IDで新規作成（先に出す）
-    const doneId = `dify-done`;
+    const doneId = newId(`dify-done`);
     await createBasicNotification(MSG_DONE, doneId);
 
     // 完了通知が出たのを確認してから、処理中通知を消す
@@ -164,7 +164,7 @@ chrome.contextMenus.onClicked.addListener(async (info) => {
     setTimeout(() => chrome.action.setBadgeText({ text: "" }), 1000);
   } catch (e) {
     // 失敗通知も別ID
-    const errId = `dify-error`;
+    const errId = newId(`dify-error`);
     await createBasicNotification("エラー: " + (e?.message || String(e)), errId);
     clearNotification(processingId);
     chrome.action.setBadgeText({ text: "ERR" });
